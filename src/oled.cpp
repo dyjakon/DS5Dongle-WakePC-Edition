@@ -437,7 +437,7 @@ __attribute__((noinline)) void render_screen() {
 
     const bool connected = bt_is_connected();
 
-    draw_text(0, 0, "DS5 Bridge v0.5.4");
+    draw_text(0, 0, "DS5 Bridge v0.6.0");
     draw_icon(120, 0, connected ? kIconLinkOn : kIconLinkOff, 8, 8);
 
     if (connected) {
@@ -1157,7 +1157,7 @@ void boot_splash() {
         return (128 - (n * 6 - 1)) / 2;
     };
     const char* l1 = "DS5 Bridge";
-    const char* l2 = "v0.5.4";
+    const char* l2 = "v0.6.0";
     const char* l3 = "Pico2W + OLED";
     draw_text(cx_for(l1), 16, l1);
     draw_text(cx_for(l2), 30, l2);

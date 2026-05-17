@@ -188,7 +188,7 @@ Connection state, paired DualSense BD address, battery % with bar (`+` charging 
 
 ```
 ┌──────────────────────────────┐
-│ DS5 Bridge v0.5.4         ●  │
+│ DS5 Bridge v0.6.0         ●  │
 │ 14:3A:9A:FF:D9:F9            │
 │ 87%+ ╔══════════════╗        │
 │      ║██████░░░░░░░░║▌       │
