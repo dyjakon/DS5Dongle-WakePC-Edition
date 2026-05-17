@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ---
 
+## [0.6.0-rebase] — 2026-05-17
+
+Rebased onto upstream `awalol/DS5Dongle` `v0.6.0-hotfix`. All OLED Edition features preserved with no user-visible regression.
+
+### Changed
+
+- **Adopted upstream's `state_mgr` refactor** (`awalol/DS5Dongle#93`) as the new base for controller-state and audio-packet construction. The local speaker / HD-haptic regression fix we shipped in `bff65d6` (re-introducing a 63-byte `state_data` block into every audio packet) is **dropped** — upstream's `state_mgr.cpp` is the proper architectural fix and supersedes the hack. Speaker, HD haptics, and basic rumble all verified working on the rebased firmware. Same fix loteran/DS5Dongle shipped as `c7a8d3c` ~6 h before ours.
+- All upstream commits between our prior base (`a2e3a33`) and `v0.6.0-hotfix` are now in our tree: `0a33aae` PR#93 merge, `b1019fb` README update, `54a4b69` config struct comment typo, `f882ff1` adjust default state-init volume, `77bbee5` rumble transfer fix, `c2e0d84` state init after connected, `7bbe37b` state_mgr refactor itself, `9a2c2b4` discoverable / connectable off when connected, `508a841` DISABLE_SPEAKER_PROC option, `b308545` audio.cpp comment, `0ed05d3` rumble hotfix.
+- Our `update_discoverable()` helper (gates `gap_discoverable_control` on `slots_any_empty()`) replaces upstream's stricter `gap_*_control(false)` pair on L2CAP connect. Effect: dongle stays discoverable while at least one slot is empty (needed for slot-1/2/3 pairing); only goes dark when all 4 are full. Strictly looser than upstream's rule, but correct for the multi-slot use case.
+
+### Fixed
+
+- **`awalol/DS5Dongle#100` "(v0.6.0) Dongle is detected as a new device on Windows when using different USB ports"** — upstream's `e79c762 remove usb serialnumber #32` zeroed the device descriptor's `iSerialNumber` to work around a SpecialK compat issue, but that broke Windows device identity: users lost per-device volume / app settings every time they moved the dongle to a different USB port. The OLED Edition restores `iSerialNumber = STRID_SERIAL` (per-board unique serial from flash chip ID via `board_usb_get_serial`). Trade-off documented in `src/usb_descriptors.cpp`: re-introduces SpecialK incompatibility (`#32`) for the narrower set of Windows users with that specific tool, in exchange for stable device identity for the broader Windows population.
+
+### Verification
+
+End-to-end on user's hardware after the rebase:
+- DS5 pairs cleanly.
+- Speaker audio via `scripts/test_speaker.sh --tone 440 3` — audible (load-bearing check that upstream's state_mgr does what we expect).
+- Basic rumble works in games (validates we didn't disturb upstream's `0ed05d3` hotfix).
+- All 10 OLED screens render correctly with live data.
+- Multi-slot pairing: switch between slots, slot_assign on empty, wipe-from-Settings all work.
+- PS + Mute hold-2s combo reboot triggers `watchdog_reboot` (validates our `interrupt_loop` addition coexists with upstream's `state_update` flow).
+
+### Unchanged
+
+The full prior CHANGELOG history for `[0.5.4]` and earlier sessions remains accurate and below.
+
 ## [Unreleased]
 
 ### Fixed
