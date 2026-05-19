@@ -48,6 +48,22 @@ uint16_t cpu_temp_raw_smoothed() {
     return (uint16_t)(ema + 0.5f);
 }
 
+// Mic-debug globals (defined in main.cpp). File-scope extern so the
+// linker resolves them once and cmd.cpp's 0xFD handler reads the same
+// memory main.cpp writes to.
+extern volatile uint32_t g_bt_31_packets;
+extern volatile uint32_t g_bt_other_packets;
+extern volatile uint8_t  g_last_other_id;
+extern volatile uint8_t  g_other_id_or;
+extern volatile uint8_t  g_31_b2_or;
+extern volatile uint8_t  g_last_31_b2;
+extern volatile uint16_t g_31_len_min;
+extern volatile uint16_t g_31_len_max;
+extern volatile uint8_t  g_last_other_prefix[8];
+extern volatile uint8_t  g_last_any_prefix[16];
+extern volatile uint16_t g_longest_len;
+extern volatile uint8_t  g_longest_frame[80];
+
 bool is_pico_cmd(uint8_t report_id) {
     if (report_id == 0xf6 ||
         report_id == 0xf7 ||
@@ -55,7 +71,9 @@ bool is_pico_cmd(uint8_t report_id) {
         report_id == 0xf9 ||
         report_id == 0xfa ||
         report_id == 0xfb ||
-        report_id == 0xfc
+        report_id == 0xfc ||
+        report_id == 0xfd ||  // mic-debug counters
+        report_id == 0xfe     // mic-debug longest-frame dump
     ) {
         return true;
     }
@@ -160,6 +178,58 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         buffer[8] = vcode;
         memcpy(buffer + 9, &temp_raw,        2);
         return want;
+    }
+    if (report_id == 0xfd) {
+        // Mic-debug feature report. 32-byte payload (under typical
+        // GET_REPORT control transfer cap; want=64 came back empty).
+        //   [0..3]   uint32  BT 0x31 input report count
+        //   [4..7]   uint32  BT non-0x31 input report count
+        //   [8]      uint8   last non-0x31 report ID seen
+        //   [9]      uint8   OR mask of all non-0x31 report IDs seen
+        //   [10]     uint8   OR mask of byte[2] across all 0x31 frames
+        //   [11]     uint8   last value of byte[2] in a 0x31 frame
+        //   [12..13] uint16  min frame length seen
+        //   [14..15] uint16  max frame length seen
+        //   [16..23] uint8[8]  first 8 bytes of last non-0x31 frame
+        //   [24..31] uint8[8]  first 8 bytes of most recent ANY frame
+        constexpr uint16_t want = 32;
+        // Diagnostic: do NOT bail if reqlen < want — write what we can
+        // and set sentinel. If we still see 0x00 at byte[31] the handler
+        // isn't reached at all.
+        for (uint16_t i = 0; i < want && i < reqlen; i++) buffer[i] = 0;
+
+        const uint32_t bt31    = g_bt_31_packets;
+        const uint32_t btother = g_bt_other_packets;
+        const uint16_t lmin    = g_31_len_min == 0xFFFF ? 0 : g_31_len_min;
+        const uint16_t lmax    = g_31_len_max;
+
+        memcpy(buffer + 0,  &bt31, 4);
+        memcpy(buffer + 4,  &btother, 4);
+        buffer[8]  = g_last_other_id;
+        buffer[9]  = g_other_id_or;
+        buffer[10] = g_31_b2_or;
+        buffer[11] = g_last_31_b2;
+        memcpy(buffer + 12, &lmin, 2);
+        memcpy(buffer + 14, &lmax, 2);
+        for (int i = 0; i < 8 && (16 + i) < reqlen; i++) buffer[16 + i] = g_last_other_prefix[i];
+        for (int i = 0; i < 8 && (24 + i) < reqlen; i++) buffer[24 + i] = g_last_any_prefix[i];
+        return (reqlen < want) ? reqlen : want;
+    }
+    if (report_id == 0xfe) {
+        // 0xFE: full content of the LONGEST 0x31 frame seen. Bytes 0-1
+        // = length (uint16 LE), bytes 2+ = the captured frame bytes.
+        constexpr uint16_t want = 82;  // 2 length + 80 frame bytes
+        const uint16_t lim = (reqlen < want) ? reqlen : want;
+        for (uint16_t i = 0; i < lim; i++) buffer[i] = 0;
+        const uint16_t llen = g_longest_len;
+        if (lim >= 2) {
+            buffer[0] = (uint8_t)(llen & 0xFF);
+            buffer[1] = (uint8_t)((llen >> 8) & 0xFF);
+        }
+        for (uint16_t i = 0; i < 80 && (i + 2) < lim; i++) {
+            buffer[2 + i] = g_longest_frame[i];
+        }
+        return lim;
     }
     return 0;
 }

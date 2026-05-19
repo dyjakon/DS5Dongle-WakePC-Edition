@@ -30,6 +30,32 @@ int reportSeqCounter = 0;
 uint8_t packetCounter = 0;
 bool spk_active = false;
 
+// Mic-debug instrumentation: count every 0x31 BT input report regardless
+// of mic-tag bit, accumulate OR-mask of every byte-2 value seen (tells us
+// which bits ever fire) and remember the last byte-2 value. Also track
+// observed frame-length range. Surfaced on the OLED Diagnostics screen.
+volatile uint32_t g_bt_31_packets = 0;
+volatile uint32_t g_bt_other_packets = 0;
+volatile uint8_t  g_last_other_id = 0;
+volatile uint8_t  g_other_id_or = 0;
+volatile uint8_t  g_last_31_b2 = 0;
+volatile uint8_t  g_31_b2_or = 0;
+volatile uint16_t g_31_len_min = 0xFFFF;
+volatile uint16_t g_31_len_max = 0;
+volatile uint8_t  g_mic_prefix[6] = {0};
+volatile uint8_t  g_last_other_prefix[8] = {0};
+volatile uint8_t  g_last_any_prefix[16] = {0};
+volatile uint16_t g_longest_len = 0;
+volatile uint8_t  g_longest_frame[80] = {0};
+uint32_t bt_31_packet_count() { return g_bt_31_packets; }
+uint8_t  bt_31_last_byte2()  { return g_last_31_b2; }
+uint8_t  bt_31_b2_or_mask()  { return g_31_b2_or; }
+uint16_t bt_31_len_min()     { return g_31_len_min == 0xFFFF ? 0 : g_31_len_min; }
+uint16_t bt_31_len_max()     { return g_31_len_max; }
+void bt_31_mic_prefix(uint8_t out[6]) {
+    for (int i = 0; i < 6; i++) out[i] = g_mic_prefix[i];
+}
+
 uint8_t interrupt_in_data[63] = {
     0x7f, 0x7d, 0x7f, 0x7e, 0x00, 0x00, 0xa7,
     0x08, 0x00, 0x00, 0x00, 0x52, 0x43, 0x30, 0x41,
@@ -101,6 +127,48 @@ void interrupt_loop() {
 
 void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     // printf("[Main] BT data callback: channel=%u len=%u\n", channel, len);
+    // Track ALL INTERRUPT input reports, not just 0x31. The mic stream
+    // may live on a different report ID — confirmed 2026-05-19 that data[2]
+    // bit 0 (and bit 1) is NOT a mic flag, just the report-type indicator;
+    // every "mic-tagged" frame turned out to be standard input.
+    if (channel == INTERRUPT && len > 1) {
+        if (data[1] == 0x31) g_bt_31_packets++;
+        else {
+            g_bt_other_packets++;
+            g_last_other_id = data[1];
+            g_other_id_or = (uint8_t)(g_other_id_or | data[1]);
+            for (uint16_t i = 0; i < 8 && i < len; i++) {
+                g_last_other_prefix[i] = data[i];
+            }
+        }
+        if (len > 2) {
+            g_last_31_b2 = data[2];
+            g_31_b2_or = (uint8_t)(g_31_b2_or | data[2]);
+        }
+        if (len < g_31_len_min) g_31_len_min = len;
+        if (len > g_31_len_max) g_31_len_max = len;
+        for (uint16_t i = 0; i < 16 && i < len; i++) {
+            g_last_any_prefix[i] = data[i];
+        }
+
+        // Capture the entire content of the longest 0x31 frame we've
+        // seen. Long frames almost certainly carry the mic audio appended
+        // after the standard 63-byte input report — this lets us look
+        // at the trailing bytes directly via 0xFD diagnostic.
+        if (data[1] == 0x31 && len > g_longest_len) {
+            g_longest_len = len;
+            for (uint16_t i = 0; i < 80 && i < len; i++) {
+                g_longest_frame[i] = data[i];
+            }
+        }
+    }
+
+    // Mic-add tap DISABLED — was decoding standard input (button/stick
+    // bytes) as Opus and producing INT16_MIN garbage on the USB IN
+    // endpoint. Re-enable once we identify the actual mic transport.
+    // (Standard input handling below resumes — Status screen + HID
+    //  reports to host need this.)
+
     if (channel == INTERRUPT && data[1] == 0x31) {
         if ((data[56] & 1) != (interrupt_in_data[53] & 1)) {
             set_headset(data[56] & 1);
@@ -114,12 +182,6 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
             return;
         }
 
-        // We add the critical section here to avoid any race conditions when writing to the interrupt_in_data buffer,
-        // which is shared between the main loop and this callback. 
-        // The critical section ensures that only one thread can access the buffer at a time, 
-        // preventing data corruption and ensuring thread safety.   
-        // We also set the report_dirty flag to true to indicate that new data is available
-        //  and needs to be sent in the next interrupt report.
         critical_section_enter_blocking(&report_cs);
         memcpy(interrupt_in_data, data + 3, 63);
         report_dirty = true;

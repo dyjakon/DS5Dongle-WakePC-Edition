@@ -17,6 +17,14 @@
 
 extern uint8_t interrupt_in_data[63]; // defined in main.cpp
 
+// Mic diagnostic counters (defined in main.cpp).
+extern uint32_t bt_31_packet_count();
+extern uint8_t  bt_31_last_byte2();
+extern uint8_t  bt_31_b2_or_mask();
+extern uint16_t bt_31_len_min();
+extern uint16_t bt_31_len_max();
+extern void     bt_31_mic_prefix(uint8_t out[6]);
+
 namespace {
 
 constexpr uint kPinDC = 8;
@@ -618,28 +626,38 @@ __attribute__((noinline)) void render_screen_diag() {
     draw_text(kContentX, 9, buf);
 
     // Per-second rates for the audio path counters — recompute every render.
-    static uint32_t prev_us_frames = 0, prev_bt_packets = 0;
+    static uint32_t prev_us_frames = 0, prev_bt_packets = 0, prev_mic_frames = 0, prev_bt31 = 0;
     static uint32_t prev_sample_us = 0;
     const uint32_t now_us = time_us_32();
     const uint32_t cur_us_frames = audio_usb_frames();
     const uint32_t cur_bt_packets = audio_bt_packets();
-    uint32_t usb_rate = 0, bt_rate = 0;
+    const uint32_t cur_mic_frames = audio_mic_frames();
+    const uint32_t cur_bt31 = bt_31_packet_count();
+    uint32_t usb_rate = 0, bt_rate = 0, mic_rate = 0, bt31_rate = 0;
     if (prev_sample_us != 0 && now_us > prev_sample_us) {
         const uint32_t dt_us = now_us - prev_sample_us;
         if (dt_us > 0) {
-            usb_rate = (uint32_t)(((uint64_t)(cur_us_frames - prev_us_frames) * 1000000u) / dt_us);
-            bt_rate  = (uint32_t)(((uint64_t)(cur_bt_packets - prev_bt_packets) * 1000000u) / dt_us);
+            usb_rate  = (uint32_t)(((uint64_t)(cur_us_frames  - prev_us_frames)  * 1000000u) / dt_us);
+            bt_rate   = (uint32_t)(((uint64_t)(cur_bt_packets - prev_bt_packets) * 1000000u) / dt_us);
+            mic_rate  = (uint32_t)(((uint64_t)(cur_mic_frames - prev_mic_frames) * 1000000u) / dt_us);
+            bt31_rate = (uint32_t)(((uint64_t)(cur_bt31       - prev_bt31)       * 1000000u) / dt_us);
         }
     }
-    prev_us_frames = cur_us_frames;
+    prev_us_frames  = cur_us_frames;
     prev_bt_packets = cur_bt_packets;
-    prev_sample_us = now_us;
+    prev_mic_frames = cur_mic_frames;
+    prev_bt31       = cur_bt31;
+    prev_sample_us  = now_us;
 
-    snprintf(buf, sizeof(buf), "USB aud %lu/s", (unsigned long)usb_rate);
+    snprintf(buf, sizeof(buf), "BT31 %lu Mic %lu/s", (unsigned long)bt31_rate, (unsigned long)mic_rate);
     draw_text(kContentX, 18, buf);
-    snprintf(buf, sizeof(buf), "BT 0x32 %lu/s", (unsigned long)bt_rate);
+    uint8_t pfx[6]; bt_31_mic_prefix(pfx);
+    snprintf(buf, sizeof(buf), "%02X %02X %02X %02X %02X %02X",
+             pfx[0], pfx[1], pfx[2], pfx[3], pfx[4], pfx[5]);
     draw_text(kContentX, 27, buf);
-    snprintf(buf, sizeof(buf), "HCI errs:  %lu", (unsigned long)bt_hci_err_count());
+    snprintf(buf, sizeof(buf), "dec=%ld w=%u",
+             (long)audio_mic_last_decoded(),
+             (unsigned)audio_mic_last_wrote());
     draw_text(kContentX, 36, buf);
 
     snprintf(buf, sizeof(buf), "BT: %s", bt_is_connected() ? "connected" : "waiting");
@@ -1339,6 +1357,18 @@ void oled_loop() {
     // caches its frequency-counter measurement here).
     static int last_rendered_screen = -1;
     const bool screen_entered = (current_screen != last_rendered_screen);
+
+    // Leaving Trigger Test in either direction → reset the adaptive
+    // trigger preset to OFF and push it to the controller. Otherwise
+    // the last-cycled effect (Weapon snap, Galloping pulse, etc.)
+    // stays active on the DS5 indefinitely, which surprised users
+    // who'd just navigated away expecting a clean slate.
+    if (last_rendered_screen == kScreenTriggers
+        && current_screen != kScreenTriggers) {
+        trigger_preset = 0;
+        send_trigger_effect(0);
+    }
+
     last_rendered_screen = current_screen;
 
     switch (current_screen) {

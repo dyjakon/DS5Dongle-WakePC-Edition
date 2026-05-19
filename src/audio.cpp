@@ -25,6 +25,14 @@
 // #define VOLUME_GAIN       2
 // #define BUFFER_LENGTH     48
 
+// DualSense microphone, ported from awalol/DS5Dongle's `mic` branch.
+// The DS5 sends mic audio as Opus packets embedded in BT input report
+// 0x31 when bit 1 of byte 2 is set; payload is 71 bytes of Opus at
+// offset 4, decoded to mono 48 kHz 10 ms frames (480 samples).
+#define MIC_CHANNELS      1
+#define MIC_FRAMES        480
+#define MIC_OPUS_SIZE     71
+
 using std::clamp;
 using std::max;
 
@@ -36,6 +44,21 @@ alignas(8) static uint32_t audio_core1_stack[8192];
 queue_t audio_fifo;
 static uint8_t opus_buf[200];
 critical_section_t opus_cs;
+
+// Mic ingress queue — filled from on_bt_data() (BT poll, core0), drained
+// at the top of audio_loop() on core0. The decoder is single-threaded
+// (core0 only), so no critical section is needed around it.
+queue_t mic_fifo;
+struct mic_element { uint8_t data[MIC_OPUS_SIZE]; };
+static OpusDecoder *mic_decoder = nullptr;
+static volatile uint32_t g_mic_frames = 0;
+static volatile int32_t  g_mic_last_decoded = 0;  // opus_decode return value
+static volatile uint16_t g_mic_last_want = 0;     // bytes we asked TinyUSB to send
+static volatile uint16_t g_mic_last_wrote = 0;    // bytes TinyUSB accepted
+uint32_t audio_mic_frames() { return g_mic_frames; }
+int32_t  audio_mic_last_decoded() { return g_mic_last_decoded; }
+uint16_t audio_mic_last_want()    { return g_mic_last_want; }
+uint16_t audio_mic_last_wrote()   { return g_mic_last_wrote; }
 
 struct audio_raw_element {
     float data[512 * 2];
@@ -73,7 +96,51 @@ uint8_t audio_peak_haptic() {
     return (uint8_t)(v >> 7);
 }
 
+// Most-recent Opus TOC byte (first byte of the packet). Used by the OLED
+// Diagnostics screen to decode the frame's bandwidth + duration config
+// without serial.
+static volatile uint8_t g_mic_toc = 0;
+uint8_t audio_mic_last_toc() { return g_mic_toc; }
+
+// Push a 71-byte Opus mic packet from the BT handler into the mic_fifo.
+// Called from src/main.cpp's on_bt_data() when the DS5 sends a mic-tagged
+// 0x31 input report. Drops the oldest queued packet if the FIFO is full —
+// preferring fresh audio over backlog on overload.
+void mic_add_queue(const uint8_t *data) {
+    static mic_element packet{};
+    memcpy(packet.data, data, MIC_OPUS_SIZE);
+    g_mic_toc = data[0]; // first byte of the Opus packet
+    if (queue_is_full(&mic_fifo)) queue_try_remove(&mic_fifo, NULL);
+    queue_try_add(&mic_fifo, &packet);
+}
+
 void audio_loop() {
+    // Mic-in path: pull one Opus packet from the BT-side FIFO, decode to
+    // mono PCM, duplicate to stereo (our UAC1 endpoint declares 2 channels),
+    // push to the host via tud_audio_write. Runs once per loop iteration so
+    // it keeps up with the ~100 Hz arrival rate of mic-tagged BT frames.
+    if (mic_decoder != nullptr) {
+        static mic_element packet{};
+        if (queue_try_remove(&mic_fifo, &packet)) {
+            static int16_t mono[MIC_FRAMES];
+            const int decoded = opus_decode(mic_decoder, packet.data,
+                                            MIC_OPUS_SIZE, mono, MIC_FRAMES, 0);
+            g_mic_last_decoded = decoded; // observed in OLED Diag
+            if (decoded > 0) {
+                static int16_t stereo[MIC_FRAMES * 2];
+                for (int i = 0; i < decoded; i++) {
+                    stereo[i * 2]     = mono[i];
+                    stereo[i * 2 + 1] = mono[i];
+                }
+                const uint16_t want = (uint16_t)(decoded * 2 * sizeof(int16_t));
+                const uint16_t wrote = tud_audio_write(stereo, want);
+                g_mic_last_want  = want;
+                g_mic_last_wrote = wrote;
+                g_mic_frames++;
+            }
+        }
+    }
+
     // 1. 读取 USB 音频数据
     if (!tud_audio_available()) return;
 
@@ -253,6 +320,16 @@ void audio_init() {
     critical_section_init(&opus_cs);
     multicore_launch_core1_with_stack(core1_entry, audio_core1_stack, sizeof(audio_core1_stack));
 #endif
+
+    // Mic path: queue + decoder live on core0 (audio_loop), separate from
+    // the core1 speaker encoder. Mic Opus is mono / 48 kHz / 10 ms frames.
+    queue_init(&mic_fifo, sizeof(mic_element), 2);
+    int dec_error = 0;
+    mic_decoder = opus_decoder_create(48000, MIC_CHANNELS, &dec_error);
+    if (dec_error != 0 || mic_decoder == nullptr) {
+        printf("[Audio] OpusDecoder create failed (err=%d)\n", dec_error);
+        mic_decoder = nullptr;  // ensure audio_loop's null-guard short-circuits
+    }
 }
 
 static OpusEncoder *encoder;
