@@ -131,28 +131,30 @@ watch_status() {
 }
 
 bt_trace() {
-    # Query the firmware's 0xFD vendor feature report via /dev/hidraw —
-    # exposes BT-side packet counts, last seen non-0x31 report ID, byte
-    # prefixes. Lets us find where the mic stream actually lives without
-    # an OLED-relay flash cycle per change.
+    # Query the firmware's 0xFD vendor feature report via /dev/hidraw.
+    # 0xFD carries two sections:
+    #   Section 1 (bytes 0..31)  — mic-investigation: BT 0x31 / non-0x31
+    #     counts, byte[2] OR mask, frame prefixes. Originally used to
+    #     locate the mic stream; kept for any future BT-input triage.
+    #   Section 2 (bytes 32..43) — host -> dongle -> BT trigger flow
+    #     counters (issue #3): host 0x02 OUT received total, of those
+    #     where AllowRight/LeftTriggerFFB was set, and of those forwarded
+    #     as BT 0x31 sub-0x10. Lets the user triage adaptive-trigger
+    #     issues without needing an OLED in the loop.
+    # The ioctl buffer is 45 bytes (44 payload + 1 byte that the kernel
+    # fills with the report ID).
     python3 - <<'PY'
 import fcntl, glob, struct, sys, time
 
 VID, PID = 0x054c, 0x0ce6
+IOCTL_SIZE = 45  # 1 byte report ID + 44 bytes firmware payload
 
 def find_dongle():
     for path in sorted(glob.glob('/dev/hidraw*')):
         try:
             f = open(path, 'rb+')
-            info = bytearray(8)
-            HIDIOCGRAWINFO = 0x80084803
-            try:
-                fcntl.ioctl(f, HIDIOCGRAWINFO, info)
-            except OSError:
-                pass
-            # Try feature 0xFD; if it returns 64 bytes we know it's our dongle
-            buf = bytearray(32); buf[0] = 0xFD
-            ioctl_num = (3 << 30) | (32 << 16) | (ord('H') << 8) | 0x07
+            buf = bytearray(IOCTL_SIZE); buf[0] = 0xFD
+            ioctl_num = (3 << 30) | (IOCTL_SIZE << 16) | (ord('H') << 8) | 0x07
             try:
                 fcntl.ioctl(f, ioctl_num, buf)
                 return f
@@ -167,39 +169,61 @@ if f is None:
     print('no dongle found (or no /dev/hidraw permission)')
     sys.exit(1)
 
-ioctl_num = (3 << 30) | (64 << 16) | (ord('H') << 8) | 0x07
-
 def query():
-    buf = bytearray(32); buf[0] = 0xFD
-    ioctl_num_32 = (3 << 30) | (32 << 16) | (ord('H') << 8) | 0x07
-    fcntl.ioctl(f, ioctl_num_32, buf)
+    buf = bytearray(IOCTL_SIZE); buf[0] = 0xFD
+    ioctl_num = (3 << 30) | (IOCTL_SIZE << 16) | (ord('H') << 8) | 0x07
+    fcntl.ioctl(f, ioctl_num, buf)
     # Kernel prepends the report ID at byte 0; firmware payload starts at byte 1.
     return bytes(buf[1:])
 
 def decode(b):
-    bt31    = struct.unpack('<I', b[0:4])[0]
-    btoth   = struct.unpack('<I', b[4:8])[0]
-    other_id = b[8]
-    other_or = b[9]
-    b2_or   = b[10]
-    b2_last = b[11]
-    lmin    = struct.unpack('<H', b[12:14])[0]
-    lmax    = struct.unpack('<H', b[14:16])[0]
-    othpfx  = b[16:24].hex()
-    anypfx  = b[24:32].hex()
-    return (bt31, btoth, other_id, other_or, b2_or, b2_last,
-            lmin, lmax, othpfx, anypfx)
+    return {
+        'bt31':       struct.unpack('<I', b[0:4])[0],
+        'btoth':      struct.unpack('<I', b[4:8])[0],
+        'other_id':   b[8],
+        'other_or':   b[9],
+        'b2_or':      b[10],
+        'b2_last':    b[11],
+        'lmin':       struct.unpack('<H', b[12:14])[0],
+        'lmax':       struct.unpack('<H', b[14:16])[0],
+        'othpfx':     b[16:24].hex(),
+        'anypfx':     b[24:32].hex(),
+        'host02':     struct.unpack('<I', b[32:36])[0] if len(b) >= 36 else 0,
+        'host02_trig':struct.unpack('<I', b[36:40])[0] if len(b) >= 40 else 0,
+        'host02_tx':  struct.unpack('<I', b[40:44])[0] if len(b) >= 44 else 0,
+    }
 
 s1 = query(); time.sleep(1.0); s2 = query()
 d1 = decode(s1); d2 = decode(s2)
-bt31_rate = d2[0] - d1[0]
-btoth_rate = d2[1] - d1[1]
+
+# Mic-investigation section
+bt31_rate  = d2['bt31']  - d1['bt31']
+btoth_rate = d2['btoth'] - d1['btoth']
+print('-- BT input (mic investigation legacy) --')
 print(f'rates: 0x31={bt31_rate}/s, non-0x31={btoth_rate}/s')
-print(f'len range: {d2[6]}-{d2[7]} bytes')
-print(f'byte[2] OR mask across 0x31 frames: 0x{d2[4]:02X}  last=0x{d2[5]:02X}')
-print(f'non-0x31 report IDs: OR mask=0x{d2[3]:02X}  most recent=0x{d2[2]:02X}')
-print(f'last non-0x31 prefix (data[0..7]): {d2[8]}')
-print(f'last ANY frame (data[0..7]):       {d2[9]}')
+print(f'len range: {d2["lmin"]}-{d2["lmax"]} bytes')
+print(f'byte[2] OR mask across 0x31 frames: 0x{d2["b2_or"]:02X}  last=0x{d2["b2_last"]:02X}')
+print(f'non-0x31 report IDs: OR mask=0x{d2["other_or"]:02X}  most recent=0x{d2["other_id"]:02X}')
+print(f'last non-0x31 prefix (data[0..7]): {d2["othpfx"]}')
+print(f'last ANY frame (data[0..7]):       {d2["anypfx"]}')
+
+# Trigger-flow section
+o02_rate  = d2['host02']      - d1['host02']
+trig_rate = d2['host02_trig'] - d1['host02_trig']
+tx_rate   = d2['host02_tx']   - d1['host02_tx']
+print()
+print('-- Host -> dongle -> BT trigger flow (issue #3) --')
+print(f'host 0x02 OUT:       total={d2["host02"]}      ({o02_rate}/s)')
+print(f'  w/ AllowTrigFFB:   total={d2["host02_trig"]} ({trig_rate}/s)')
+print(f'  forwarded to BT:   total={d2["host02_tx"]}   ({tx_rate}/s)')
+if d2['host02'] > 0 and d2['host02_trig'] == 0:
+    print('verdict: host is sending 0x02 reports but never sets Allow*TriggerFFB.')
+    print('         The host driver is not requesting adaptive trigger effects.')
+elif d2['host02_trig'] > 0 and d2['host02_tx'] < d2['host02_trig']:
+    print('verdict: trigger Allow bits are set but some reports are not reaching BT.')
+    print('         Likely the speaker-active gate in main.cpp swallowed them.')
+elif d2['host02_trig'] > 0:
+    print('verdict: full chain reached the controller. Tension still missing -> Sony BT limit.')
 PY
 }
 

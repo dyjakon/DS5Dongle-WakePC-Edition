@@ -63,6 +63,9 @@ extern volatile uint8_t  g_last_other_prefix[8];
 extern volatile uint8_t  g_last_any_prefix[16];
 extern volatile uint16_t g_longest_len;
 extern volatile uint8_t  g_longest_frame[80];
+extern volatile uint32_t g_host_out02_total;
+extern volatile uint32_t g_host_out02_trig_allow;
+extern volatile uint32_t g_host_out02_to_bt;
 
 bool is_pico_cmd(uint8_t report_id) {
     if (report_id == 0xf6 ||
@@ -180,8 +183,8 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         return want;
     }
     if (report_id == 0xfd) {
-        // Mic-debug feature report. 32-byte payload (under typical
-        // GET_REPORT control transfer cap; want=64 came back empty).
+        // Bridge-diagnostics feature report. 44-byte payload.
+        // Section 1: mic-investigation counters (original 0..31).
         //   [0..3]   uint32  BT 0x31 input report count
         //   [4..7]   uint32  BT non-0x31 input report count
         //   [8]      uint8   last non-0x31 report ID seen
@@ -192,10 +195,11 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         //   [14..15] uint16  max frame length seen
         //   [16..23] uint8[8]  first 8 bytes of last non-0x31 frame
         //   [24..31] uint8[8]  first 8 bytes of most recent ANY frame
-        constexpr uint16_t want = 32;
-        // Diagnostic: do NOT bail if reqlen < want — write what we can
-        // and set sentinel. If we still see 0x00 at byte[31] the handler
-        // isn't reached at all.
+        // Section 2: trigger-flow counters (issue #3 triage).
+        //   [32..35] uint32  host 0x02 OUT reports received total
+        //   [36..39] uint32  ...of those, with Allow*TriggerFFB set
+        //   [40..43] uint32  ...forwarded as BT 0x31 sub-0x10
+        constexpr uint16_t want = 44;
         for (uint16_t i = 0; i < want && i < reqlen; i++) buffer[i] = 0;
 
         const uint32_t bt31    = g_bt_31_packets;
@@ -213,6 +217,13 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         memcpy(buffer + 14, &lmax, 2);
         for (int i = 0; i < 8 && (16 + i) < reqlen; i++) buffer[16 + i] = g_last_other_prefix[i];
         for (int i = 0; i < 8 && (24 + i) < reqlen; i++) buffer[24 + i] = g_last_any_prefix[i];
+
+        const uint32_t out02   = g_host_out02_total;
+        const uint32_t out02_t = g_host_out02_trig_allow;
+        const uint32_t out02_b = g_host_out02_to_bt;
+        if ((32 + 4) <= reqlen) memcpy(buffer + 32, &out02,   4);
+        if ((36 + 4) <= reqlen) memcpy(buffer + 36, &out02_t, 4);
+        if ((40 + 4) <= reqlen) memcpy(buffer + 40, &out02_b, 4);
         return (reqlen < want) ? reqlen : want;
     }
     if (report_id == 0xfe) {

@@ -186,6 +186,34 @@ Build flags worth knowing:
 - `-DENABLE_SERIAL=ON` — route printf to USB CDC for debugging (default OFF; releases UART for production builds).
 - `-DPICO_W_BUILD=ON` — build for the original Pico W (drops audio, lowers clock). Default targets Pico 2 W.
 
+## Diagnostics & debug tooling
+
+Two ways to triage bridge issues — on-device via the OLED Diagnostics screen, and host-side via `scripts/mic_diag.sh` (Linux). The host-side path is faster: no screen-switching, no flash cycle, runs while the controller is in active use.
+
+```
+# One-shot snapshot — is the dongle on USB? Did ALSA enumerate it? Is the
+# capture stream live? Is a controller currently paired?
+scripts/mic_diag.sh status
+
+# 3-second arecord on the mic IN endpoint — reports peak / RMS / non-zero
+# count so we can tell "stream is silent" from "stream is producing audio".
+scripts/mic_diag.sh capture 3
+
+# Same as `status` but in a loop, prints only on state change. Useful for
+# catching the exact second pairing completes or audio streams open / close.
+scripts/mic_diag.sh watch
+
+# Live read of the firmware's 0xFD vendor feature report (via /dev/hidraw):
+# BT input counts + rates, last seen non-0x31 IDs, byte prefixes, AND the
+# trigger-flow counters (host 0x02 received / with AllowTriggerFFB set /
+# forwarded to BT). bt-trace prints a verdict — "host driver isn't sending
+# trigger Allow bits" vs "forwarded but controller didn't actuate" — which
+# is what would otherwise need a USB protocol analyzer.
+scripts/mic_diag.sh bt-trace
+```
+
+Originally written to triage the parked DS5 BT-microphone investigation (see [BLUETOOTH_AUDIO_NOTES.md](./BLUETOOTH_AUDIO_NOTES.md)). The `0xFD` feature report and `bt-trace` decoder now also carry the trigger-flow counters added for [issue #3](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition/issues/3) (missing adaptive trigger tension in some games).
+
 ## OLED Display Add-on (optional)
 
 If you plug a [Waveshare Pico-OLED-1.3](#hardware) onto the Pico2W's headers, the firmware drives it automatically as a live status display. No configuration needed — the firmware no-ops gracefully when no OLED is present.
@@ -249,7 +277,9 @@ Live render of the touchpad surface. Dots appear at current finger positions; th
 
 #### 7. Diagnostics
 
-Uptime, BT state, USB-audio frames/sec, BT 0x32 packets/sec, and HCI error counter — live values for verifying the audio path is moving bytes without needing a UART cable.
+Scrollable list of live counters — uptime, BT state, host → BT trigger flow (`host02` / `trig` / `tx`), BT 0x31 input rate, USB audio frames/sec, BT 0x32 packets/sec, and parked mic-investigation counters at the bottom. Controller D-pad ▲/▼ scrolls; tiny `^` / `v` glyphs at the right edge mark "more above/below." Read-only, so no cursor. Useful for verifying the bridge is moving bytes without needing a UART cable.
+
+The same counters are also exported on HID feature report `0xFD` for host-side tooling — see `scripts/mic_diag.sh bt-trace` below.
 
 <img src="./assets/oled/oled_sc07.jpg" alt="Diagnostics screen on the OLED" width="420">
 
