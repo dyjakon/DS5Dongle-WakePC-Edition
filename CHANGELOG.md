@@ -10,6 +10,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ---
 
+## [0.6.8-oled-edition] — 2026-05-24
+
+Two big items: **DualSense microphone over Bluetooth** (long believed impossible — turned out to be a single enable bit; credit [awalol](https://github.com/awalol/DS5Dongle) upstream) and a **USB 3.0 connection-interference watchdog**. UF2s attached to [the GitHub release](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition/releases/tag/v0.6.8-oled-edition) (built by `.github/workflows/release.yml`). The companion `DS5Dongle-OLED-Config-Web` config tool gains a **BT microphone** toggle.
+
+### Added
+
+- **DualSense microphone over Bluetooth.** The controller's built-in mic now works over the dongle's BT pairing — decoded from the DS5's Opus stream and presented to the host as the standard DualSense USB capture device, usable by any app (Discord, OBS, in-game voice). This fork had previously documented BT mic as a hard Sony-firmware limitation (likely encrypted); that conclusion was **wrong** — it hinged on a single enable bit (`pkt[4]` bit 0 in the outbound `0x36` audio report). Credit to **[awalol](https://github.com/awalol/DS5Dongle)** (upstream) for identifying it. The DS5 streams mic as 71-byte Opus packets tagged in `0x31` reports (`(data[2]>>1)&1`); `src/audio.cpp` decodes mono→stereo to the UAC1 endpoint. **Always-on:** the enable is sticky once streaming, so a control-only `0x36` keep-alive asserts it at ~4 Hz only until frames arrive, then backs off — mic works with no game audio, at minimal BT traffic. **Toggle:** new `bt_mic_enable` config field (default on; off saves DS5 battery since always-on keeps its audio subsystem awake) — OLED **Settings → BT Mic** and the web config tool's **BT microphone** switch. `BLUETOOTH_AUDIO_NOTES.md` rewritten from "dead end" to the working mechanism; README gains a user-facing **"DualSense Microphone over Bluetooth"** section.
+
+### Fixed
+
+- **Connection no longer hangs permanently on the amber lightbar (USB 3.0 interference recovery).** Users reported the DualSense getting stuck mid-connect (solid amber/yellow, never enumerates) on USB 3.0 host ports while USB 2.0 worked — caused by USB 3.0's broadband ~2.4 GHz RF noise desensitizing the CYW43 Bluetooth radio. The firmware's connection flow had dead-end states (ACL-fail and auth-fail re-inquiry were commented out; the controller-type feature-packet wait had no timeout), so a single lost packet stalled forever until a replug. Added a **connection-attempt watchdog** (`src/bt.cpp`): a 10 s timeout armed when a connection commits to a device and cleared when it reaches USB enumeration; on expiry it tears down via the existing `HCI_EVENT_DISCONNECTION_COMPLETE` path and restarts inquiry, so a stalled connect auto-retries instead of hanging. Re-enabled the ACL-fail / create-connection-reject / auth-fail recovery paths for faster recovery when the controller *does* report a failure. The watchdog is inert during a healthy established session (no effect on normal play, slot-switching, or idle-disconnect). Helps any marginal-RF setup, not just USB 3.0.
+
+### Documentation
+
+- New README section **"USB 3.0 ports & Bluetooth interference"** + a Known Issues bullet: explains the 2.4 GHz RFI cause (referencing Intel's white paper) and lists mitigations (USB 2.0 port, short USB 2.0 extension cable, powered USB 2.0 hub, ferrite bead, distance/line-of-sight).
+
+---
+
 ## [0.6.7-oled-edition] — 2026-05-23
 
 UF2s attached to [the GitHub release](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition/releases/tag/v0.6.7-oled-edition) (built by `.github/workflows/release.yml`).
