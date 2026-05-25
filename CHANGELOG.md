@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+---
+
+## [0.6.10-oled-edition] — 2026-05-25
+
+Headline: the **Gyro Tilt screen** is now actually usable — it applies the controller's per-unit factory **IMU calibration**, the dot **centres when the controller lies flat**, and tilt **tracks the direction** you move it. Also adds an **L3 / R3 stick-click indicator** on the Status screen and makes the **charge-ETA** robust so it no longer over-reports off a single slow charge step. Everything here is on-dongle display only — **what games receive is unchanged** (the full gyro/accel stream is still forwarded byte-for-byte). UF2s attached to [the GitHub release](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition/releases/tag/v0.6.10-oled-edition) (built by `.github/workflows/release.yml`).
+
 ### Added
 
 - **L3 / R3 click indicator on the OLED Status screen.** Clicking a stick in now flashes its analog-stick box inverse (white box, black dot) for as long as it's held — previously the stick clicks had no on-screen feedback. Mirrored in the web config tool's OLED Preview.
