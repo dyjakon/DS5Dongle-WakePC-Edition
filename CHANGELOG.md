@@ -8,6 +8,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+### Added
+
+- **`CtrlWake` setting — let the OLED sleep while the controller is in use (issues #8, #9).** The idle power-ladder (dim → off) previously never fired during gameplay, because every controller input bumped the activity timer and kept the panel awake — so a configured dim/off timeout effectively did nothing while playing. New Settings item `CtrlWake` (default **on**, preserving the old behavior); set it **off** and controller input no longer wakes the screen — only the OLED's KEY0/KEY1 do — so the dim/off timers count down during play and the panel can sleep, requiring a button press to wake.
+
+### Fixed
+
+- **Adaptive trigger effects now work through the dongle (issue #6).** Host-sent trigger force-feedback was silently dropped: `state_update()` copied the 11-byte `RightTriggerFFB`/`LeftTriggerFFB` parameter blocks into the outgoing controller-state but never set the `AllowRightTriggerFFB`/`AllowLeftTriggerFFB` "apply" bits in byte 0, so the DualSense received the data with the enable flags cleared and discarded it. Affected **both** output paths (standalone `0x31` and the `0x36` audio-frame fold), which is why triggers felt absent through the dongle but worked on direct USB. The on-dongle Trigger Test screen always set those bits directly (`0x0C`), which is why it worked. Now the host's two allow-flags are mirrored into the state alongside the FFB data, like the rumble flags already were.
+- **OLED brightness now persists across a power cycle (issue #9).** The KEY1-long-press brightness level was a runtime-only value that reset to full on every boot; it is now stored in config and restored at init.
+
 ---
 
 ## [0.6.10-oled-edition] — 2026-05-25

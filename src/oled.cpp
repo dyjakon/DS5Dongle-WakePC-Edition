@@ -126,15 +126,16 @@ constexpr int kLbModeHost = 8;
 constexpr int kNumLbModes = 9;
 
 // Settings screen state
-constexpr int kNumSettingsItems = 16; // 8 fields + 3 auto-haptic + 2 screen-timeout + BT mic + Reset + Wipe
+constexpr int kNumSettingsItems = 17; // 8 fields + 3 auto-haptic + 2 screen-timeout + BT mic + Ctrl-wake + Reset + Wipe
 constexpr int kSettingsAutoHapEnaIdx  = 8;
 constexpr int kSettingsAutoHapGainIdx = 9;
 constexpr int kSettingsAutoHapLpIdx   = 10;
 constexpr int kSettingsScrDimIdx      = 11;
 constexpr int kSettingsScrOffIdx      = 12;
 constexpr int kSettingsBtMicIdx       = 13;
-constexpr int kSettingsResetIdx       = 14;
-constexpr int kSettingsWipeSlotsIdx   = 15;
+constexpr int kSettingsCtrlWakeIdx    = 14;
+constexpr int kSettingsResetIdx       = 15;
+constexpr int kSettingsWipeSlotsIdx   = 16;
 Config_body settings_local{};
 int settings_sel = 0;
 bool settings_dirty = false;
@@ -521,6 +522,14 @@ void handle_buttons() {
         last_activity_us = time_us_64();
         if (held > kLongPressUs) {
             bright_idx = (bright_idx + 1) % kNumBrightLevels;
+            // Persist so the choice survives a power cycle (issue #9). Keep
+            // settings_local in sync too, so a later Settings-screen save can't
+            // clobber screen_brightness with its stale snapshot.
+            Config_body b = get_config();
+            b.screen_brightness = (uint8_t)bright_idx;
+            set_config(b);
+            config_save();
+            settings_local.screen_brightness = (uint8_t)bright_idx;
         } else {
             current_screen = (current_screen - 1 + kNumScreens) % kNumScreens;
             last_render_us = 0;
@@ -1547,6 +1556,7 @@ void settings_adjust(int delta) {
             break;
         }
         case 13: c.bt_mic_enable ^= 1; break; // BT mic on/off
+        case 14: c.controller_wakes_display ^= 1; break; // controller activity wakes OLED on/off
     }
 }
 
@@ -1649,8 +1659,9 @@ __attribute__((noinline)) void format_settings_item(int idx, char* line, size_t 
             else snprintf(line, n, "%s ScrOff %umin", cur, c.screen_off_timeout);
             break;
         case 13: snprintf(line, n, "%s BT Mic %s", cur, c.bt_mic_enable ? "on" : "off"); break;
-        case 14: snprintf(line, n, "%s Reset to defaults", cur); break;
-        case 15: snprintf(line, n, "%s Wipe all slots", cur); break;
+        case 14: snprintf(line, n, "%s CtrlWake %s", cur, c.controller_wakes_display ? "on" : "off"); break;
+        case 15: snprintf(line, n, "%s Reset to defaults", cur); break;
+        case 16: snprintf(line, n, "%s Wipe all slots", cur); break;
     }
 }
 
@@ -1822,6 +1833,11 @@ void oled_init() {
     // Restore the persisted lightbar mode + favorites (config_load() already ran
     // in main() before this). Defaults to HOST passthrough on a fresh flash.
     lightbar_load_config();
+
+    // Restore the persisted OLED brightness (KEY1-long-press choice). config_valid
+    // clamps screen_brightness to a legal kBrightLevels index, so this is safe to
+    // use directly. Fresh flash → 0 (full brightness). Issue #9.
+    bright_idx = get_config().screen_brightness;
 }
 
 // Dim-tier renderer: blank the panel and draw a tiny "I'm alive" dot that
@@ -1885,7 +1901,12 @@ void oled_loop() {
     }
     if (hash != last_input_hash) {
         last_input_hash = hash;
-        last_activity_us = time_us_64();
+        // Controller input only keeps the panel awake when the user has left
+        // "CtrlWake" on (the default). With it off, the dim/off timers count
+        // down during gameplay and only KEY0/KEY1 wake the screen — see
+        // handle_buttons(), which bumps last_activity_us unconditionally.
+        // Issues #8 / #9.
+        if (get_config().controller_wakes_display) last_activity_us = time_us_64();
     }
     // Rising-edge: BT-connect itself counts as activity, so the screen wakes
     // the moment a controller pairs rather than waiting for the first input.
