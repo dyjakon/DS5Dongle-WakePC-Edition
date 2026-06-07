@@ -23,6 +23,8 @@ The web tool is a one-stop shop — **no installs, no command line, no `picotool
 
 Works in any Chromium-based browser (Chrome, Edge, Brave, Opera). Firefox + Safari don't expose WebHID or WebUSB, so flashing and live config aren't available there — the OLED Preview still renders with mock data.
 
+> **⚠️ Native-trigger firmware (Unreleased) and the WebHID tabs.** To make games on Linux/Proton recognise the dongle as a genuine DualSense and fire **native adaptive triggers** (see [CHANGELOG.md](./CHANGELOG.md)), the firmware's HID descriptor is now byte-identical to a real DS5 — which meant *un-declaring* the `0xF6`/`0xF7` config reports the browser **Config** and **Remap** tabs depend on. On that firmware those two tabs can't reach the dongle (WebHID refuses undeclared report IDs). **Flash Firmware and OLED Preview still work**, on-dongle OLED config still works, and the same settings can be driven over Linux `hidraw`. Earlier releases are unaffected.
+
 > Source for the web tool: **[MarcelineVPQ/DS5Dongle-OLED-Config-Web](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Config-Web)** (fork of [awalol/ds5dongle-config-web](https://github.com/awalol/ds5dongle-config-web)).
 
 ---
@@ -43,6 +45,7 @@ This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge f
 
 **OLED Edition additions:**
 
+- **Native DualSense adaptive triggers in PC games on Linux/Proton — through the dongle.** Games with native DualSense support drive the controller's adaptive triggers wirelessly via the dongle, **1:1 with a directly-wired DualSense**. Requires a Proton carrying the Wine `winebus.sys` #9034 fix (Wine 11 / current Proton-GE), `PROTON_ENABLE_HIDRAW=0x054c/0x0ce6`, and Steam Input disabled; the firmware makes the dongle byte-for-byte indistinguishable from a real DS5 so the game accepts it (full write-up in [CHANGELOG.md](./CHANGELOG.md)). Trade-off: the browser Config/Remap tabs are disabled on this firmware (see the note above).
 - Optional Pico-OLED-1.3 status display with **11 screens** (status, slots, lightbar, trigger test, gyro tilt, touchpad, diagnostics, CPU/clock, RSSI, VU meters, settings)
 - **Button remapping** — reassign any of the 16 digital controls (face buttons, D-pad, shoulders/triggers, stick clicks, Create/Options) to any other. Stored on the dongle and applied before the host sees the report, so it works in **every game and OS with no host-side software**; identity (no remap) is the default. Edit it visually in the [web config tool](#️-web-config-tool)'s **Remap tab**, or headlessly via `scripts/remap_test.py`. Persisted in its own flash sector, survives reboot.
 - **4-slot persistent multi-controller pairing** — bond up to four DualSenses, switch between them from the OLED, slot 0 reconnects automatically on boot
@@ -51,6 +54,42 @@ This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge f
 - **OLED idle power ladder** — manual brightness cycle (KEY1 long-press), automatic deep-dim with a small breathing dot at 2 min idle, full display-off at 15 min idle. Wakes instantly on button, controller pair, or input. Real burn-in protection, not just a contrast tweak.
 - **Soft-reboot** without unplugging USB via DS5 `PS + Mute` hold (works headless) or **KEY0 + KEY1 held together for 1 s** on the OLED add-on (replaces the older KEY0 double-click gesture, which was easy to fire by accident while paging quickly)
 - **Audit pass on the core bridge** — critical stack-overflow fix in the audio path (resolves long-standing "audio stuttering"), security hardening, watchdog, length validation across HID/L2CAP boundaries (see [CHANGELOG.md](./CHANGELOG.md))
+
+## 🐧 Linux: native adaptive triggers (Proton)
+
+Getting a game to drive the controller's **adaptive triggers through the dongle** on Linux needs a Proton that carries the Wine `winebus.sys` **#9034** fix. **As of this writing no official Proton-GE release includes it yet** — it's merged upstream but unreleased, and `GE-Proton10-34` (the current release) and earlier do **not** have it. So a build that does is provided: **`GE-Proton-DualSense`** (see [Releases](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition/releases)). Once an official GE-Proton ships the fix, that will work too.
+
+> Why: the #9034 bug suppresses the SDL gamepad device when a hidraw device exists for the same VID/PID, so the pad is seen *everywhere except in-game*. The fix lets the native (trigger-capable) path and a working gamepad coexist.
+
+**One-time setup**
+
+1. **Install the Proton build.** Download `GE-Proton-DualSense.tar.gz` and extract it to:
+   - **Steam:** `~/.steam/root/compatibilitytools.d/`
+   - **Heroic:** `~/.config/heroic/tools/proton/`
+
+   Then **fully restart Steam** so it detects the new compatibility tool.
+2. **Disable Steam Input** so the game talks to the controller natively — Steam → game **Properties → Controller → Disable Steam Input** (or globally: Settings → Controller → turn off PlayStation Controller support).
+
+**Per game**
+
+3. **Force the Proton:** Steam → right-click the game → **Properties → Compatibility → Force the use of a specific Steam Play compatibility tool → `GE-Proton-DualSense`**. (Heroic: set the game's *Wine version* to it.)
+4. **Set the launch option** (Steam: Properties → General → Launch Options; Heroic: per-game Environment Variables):
+
+   ```
+   PROTON_ENABLE_HIDRAW=0x054c/0x0ce6 %command%
+   ```
+
+Launch — native adaptive triggers fire through the dongle, 1:1 with a wired DualSense. The game must have native DualSense support (e.g. Cyberpunk 2077). First launch under a new Proton does locale/prefix setup and can sit "Not Responding" for a minute — that's setup, not a crash; let it finish.
+
+**Launch-option reference**
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `PROTON_ENABLE_HIDRAW` | `0x054c/0x0ce6` | **Required for triggers.** Exposes the dongle's raw HID to the game so it uses the native DualSense path (adaptive triggers + haptics). `054c/0ce6` is the dongle's USB VID/PID — identical to a real DualSense. |
+| `PROTON_PREFER_SDL` | `1` | *Alternative, input-only.* Forces the SDL gamepad path — gives working input + rumble but as a generic/Xbox pad (**no triggers**). Use only when a game lacks native DualSense support and `ENABLE_HIDRAW` doesn't help. Do **not** combine with `ENABLE_HIDRAW` for trigger games. |
+| `PROTON_LOG` | `+hid,+setupapi,+plugplay` | *Diagnostic only* (not for normal play). Writes a HID enumeration trace to `~/steam-<appid>.log` — useful for debugging recognition (Steam honors it; Heroic overrides `PROTON_LOG_DIR`/`WINEDEBUG`). |
+
+> **Heroic vs Steam:** Heroic games launch Proton without Steam's controller layer, so they're simpler — just set the runner to `GE-Proton-DualSense` and the `PROTON_ENABLE_HIDRAW` env var. Steam games additionally need Steam Input disabled (above).
 
 ## Hardware
 

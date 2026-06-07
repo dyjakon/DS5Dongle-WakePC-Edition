@@ -8,6 +8,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+Headline: **native DualSense adaptive triggers now fire in real PC games on Linux/Proton — through the dongle, 1:1 with a wired controller.** For weeks the triggers only ever worked in the on-dongle OLED self-test, never in a game: the dongle was *recognised*, but games fell back to a generic/Xbox pad and never sent trigger effects. The root cause was three ways the dongle's USB presentation differed from genuine Sony hardware — each one accepted by Linux's `hid_playstation` (which only checks size + CRC) but **rejected by a game's native DualSense detection, which validates the actual content**. Closing all three makes the dongle byte-for-byte indistinguishable from a real DS5 to the game.
+
+**Host-side recipe (required alongside this firmware):** run the game on a Proton that carries the Wine `winebus.sys` **#9034** fix (Wine 11 / current Proton-GE — the bug suppresses the SDL gamepad device when a hidraw device exists for the same VID/PID, so the pad shows up everywhere *except* in-game), set `PROTON_ENABLE_HIDRAW=0x054c/0x0ce6` in the launch options, and **disable Steam Input** (native path). With a real DS5 this "just works"; the firmware changes below make the dongle match.
+
+### Added
+
+- **Native adaptive triggers & haptics in games on Linux/Proton, through the dongle.** Games with native DualSense support (Cyberpunk 2077, etc.) now drive the controller's adaptive triggers via the dongle, identical to a directly-wired DualSense — verified 1:1 by A/B against the same controller plugged in over USB-C. No Steam Input, no per-game hacks beyond the host recipe above. The firmware already proxies the host's trigger output reports to the controller (unchanged); the missing piece was getting games to *recognise* the dongle as a genuine DS5 in the first place (below).
+
+### Changed
+
+- **The DualSense HID report descriptor is now byte-identical to a real DS5 (289 bytes, was 321).** The OLED Edition declared four extra feature reports — `0xF6`–`0xF9`, the WebHID config/remap IDs — inside the gamepad collection, making the descriptor 32 bytes longer than genuine hardware. Games' native DualSense parser rejects that mismatch and falls back to a generic pad (no triggers); `hid_playstation` didn't care, which is why the OLED self-test always worked but games never did. The four declarations are removed (plus the runtime `wDescriptorLength` patch that overrode the static array, `0x41`→`0x21`). The firmware **still handles** `0xF6`–`0xF9`; they're simply undeclared now and work over Linux `hidraw` exactly like the existing `0xFD` diagnostic report.
+- **Feature reports `0x09` (pairing), `0x20` (firmware) and `0x05` (calibration) now return the controller's real cached data, not zeros.** The earlier native-recognition fix answered these with zeros + a valid CRC — enough for `hid_playstation` to bind, but games validate the *content*: Cyberpunk GET-read `0x20`/`0x09` ~156× in a retry storm rejecting the zeros, never completed the DualSense handshake, and showed no controller. The dongle already fetches and caches the genuine reports from the connected controller over BT (`init_feature()`); `tud_hid_get_report_cb` now serves that cache (real firmware string / pairing / calibration), keeping the CRC-valid synthetic stub only as a fallback for the USB-enumeration probe before the BT link is up (so `hid_playstation` still binds then). Builds on the `hid_playstation` binding fix and the serial-=-MAC identity fix.
+
+### Known tradeoff
+
+- **The browser (WebHID) Config and Remap tabs no longer reach the dongle.** They drove config over reports `0xF6`/`0xF7`, which are no longer *declared* in the HID descriptor — and WebHID refuses undeclared report IDs (declaring them is exactly what broke game triggers). Mitigations, no firmware change needed: **on-dongle OLED config still works**, and because undeclared IDs are fine over Linux `hidraw`, a small `hidraw` CLI/script can read & write all of `0xF6`–`0xF9` (the same mechanism `scripts/mic_diag.sh` uses for `0xFD`). Restoring the *browser* tool would require moving the custom reports into a separate vendor HID collection — which risks the descriptor diverging from a real DS5 again, re-breaking triggers, so it's deliberately not done here.
+
 ---
 
 ## [0.6.10-oled-edition] — 2026-05-25
