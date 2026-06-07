@@ -44,6 +44,16 @@ struct __attribute__((packed)) Config_body {
     // over BT and the dongle decodes it to the USB capture endpoint. Costs extra
     // DS5 battery (keeps its audio subsystem awake), hence the toggle.
     uint8_t bt_mic_enable;
+    // OLED brightness, as an index into kBrightLevels[] (src/oled.cpp). Persisted
+    // so the KEY1-long-press brightness choice survives a power cycle. Erased
+    // flash (0xFF) → clamped to 0 (full brightness) by config_valid. Issue #9.
+    uint8_t screen_brightness;
+    // When 0, controller input no longer keeps the OLED awake — only the OLED's
+    // own KEY0/KEY1 do — so the dim/off timers actually count down during
+    // gameplay and the panel can sleep while the controller is in use. Default 1
+    // preserves the original "any controller activity wakes the screen"
+    // behavior. Issues #8 (dim timeout never fired during play) and #9.
+    uint8_t controller_wakes_display;
 };
 
 struct __attribute__((packed)) Config {

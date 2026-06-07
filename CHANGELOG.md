@@ -6,7 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ---
 
-## [Unreleased]
+## [0.6.12-oled-edition] — 2026-06-07
+
+> **Supersedes the withdrawn v0.6.11.** v0.6.11 bundled the two OLED quality-of-life features below with two regressions (constant haptics, issue #11; an audio retiming change, issue #12) and is not recommended. v0.6.12 is built on the verified-working native-trigger firmware and folds in **only** the two separable good features — `CtrlWake` and brightness persistence — leaving the trigger and audio code paths byte-identical to the tested build. The v0.6.11 regression changes (the `state_mgr.cpp` trigger-FFB allow-bit mirror and the `audio.cpp` resampler retiming) are intentionally **not** carried over.
 
 Headline: **native DualSense adaptive triggers now fire in real PC games on Linux/Proton — through the dongle, 1:1 with a wired controller.** For weeks the triggers only ever worked in the on-dongle OLED self-test, never in a game: the dongle was *recognised*, but games fell back to a generic/Xbox pad and never sent trigger effects. The root cause was three ways the dongle's USB presentation differed from genuine Sony hardware — each one accepted by Linux's `hid_playstation` (which only checks size + CRC) but **rejected by a game's native DualSense detection, which validates the actual content**. Closing all three makes the dongle byte-for-byte indistinguishable from a real DS5 to the game.
 
@@ -15,6 +17,8 @@ Headline: **native DualSense adaptive triggers now fire in real PC games on Linu
 ### Added
 
 - **Native adaptive triggers & haptics in games on Linux/Proton, through the dongle.** Games with native DualSense support (Cyberpunk 2077, etc.) now drive the controller's adaptive triggers via the dongle, identical to a directly-wired DualSense — verified 1:1 by A/B against the same controller plugged in over USB-C. No Steam Input, no per-game hacks beyond the host recipe above. The firmware already proxies the host's trigger output reports to the controller (unchanged); the missing piece was getting games to *recognise* the dongle as a genuine DS5 in the first place (below).
+- **`CtrlWake` setting — let the OLED sleep while you play.** New Settings toggle (default **on**, preserving the old behaviour). With it **off**, controller input no longer keeps the panel awake — only the OLED's own KEY0/KEY1 do — so the auto-dim / auto-off timers actually count down during gameplay and the screen can sleep while the controller is in active use. (folded from v0.6.11; issues #8/#9)
+- **OLED brightness now persists across a power cycle.** The KEY1-long-press brightness choice is saved to config and restored on boot, instead of resetting to full every power-on. (folded from v0.6.11; issue #9)
 
 ### Changed
 

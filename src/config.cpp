@@ -113,6 +113,14 @@ void config_valid() {
         body->bt_mic_enable = 1;
         printf("[Config] bt_mic_enable invalid, defaulting to 1 (on)\n");
     }
+    if (body->screen_brightness > 3) {    // kBrightLevels has 4 entries (0..3)
+        body->screen_brightness = 0;      // full brightness
+        printf("[Config] screen_brightness invalid, defaulting to 0 (full)\n");
+    }
+    if (body->controller_wakes_display > 1) { // 0xFF erased / upgrade → default ON
+        body->controller_wakes_display = 1;
+        printf("[Config] controller_wakes_display invalid, defaulting to 1 (on)\n");
+    }
     if (body->config_version != CONFIG_VERSION) {
         body->config_version = CONFIG_VERSION;
         printf("[Config] Warning: Config may breaking change\n");
