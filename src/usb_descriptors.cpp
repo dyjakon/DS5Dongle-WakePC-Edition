@@ -26,6 +26,8 @@
 #include "bsp/board_api.h"
 #include "tusb.h"
 #include "config.h"
+#include "bt.h"
+#include "slots.h"
 
 #ifndef ENABLE_SERIAL
 #define ENABLE_SERIAL 0
@@ -858,9 +860,35 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
             chr_count = 1;
             break;
 
-        case STRID_SERIAL:
-            chr_count = board_usb_get_serial(_desc_str + 1, 32);
+        case STRID_SERIAL: {
+            // Present like a REAL DualSense: USB serial == controller MAC, the
+            // same value the 0x09 pairing-info feature report returns. Before
+            // this the serial was the Pico flash unique id, so the host saw two
+            // identities for one controller (flash-id over USB, MAC over 0x09)
+            // and Wine/Steam device-matching choked. Prefer the live connected
+            // MAC; fall back to the current slot's stored MAC (known at boot,
+            // before BT connects); finally fall back to the flash id if never
+            // paired so the descriptor is always valid.
+            uint8_t mac[6] = {0};
+            bool have = false;
+            bt_get_addr(mac);
+            for (int i = 0; i < 6; ++i) if (mac[i]) { have = true; break; }
+            if (!have) {
+                slot_get_addr(get_config().current_slot, mac);
+                for (int i = 0; i < 6; ++i) if (mac[i]) { have = true; break; }
+            }
+            if (have) {
+                static const char hexd[] = "0123456789ABCDEF";
+                for (int i = 0; i < 6; ++i) {
+                    _desc_str[1 + i * 2]     = hexd[(mac[i] >> 4) & 0x0F];
+                    _desc_str[1 + i * 2 + 1] = hexd[mac[i] & 0x0F];
+                }
+                chr_count = 12;
+            } else {
+                chr_count = board_usb_get_serial(_desc_str + 1, 32);
+            }
             break;
+        }
 
         default:
             // Note: the 0xEE index string is a Microsoft OS 1.0 Descriptors.
