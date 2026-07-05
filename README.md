@@ -80,7 +80,7 @@ Use the Web config tool to further configure the DS controller:
 After you configure the dongle with the webtool, make the following connections:
 
 | From | To | Notes | Connection Type |
-|---|---|---|
+|---|---|---|---|
 | GP21 | Case power button + | For manually triggering a turn on without a controller (use any other free GND on Pico2W for negative/neutral pin) | 1.25mm connector |
 | VSYS | ATX24 5VSB+ | connection from ATX24 5VSB+ to provided constant power to Pico2W, this allows the Pico to listen for DS controller BT signal | solder |
 | COM | GND connection from ATX24 | Common ground between Pico2W, PC Motherboard and ATX24 PSU | solder |
