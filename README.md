@@ -77,6 +77,7 @@ Use the Web config tool to further configure the DS controller:
 **Web config (recommended, any Chromium-based browser):** open **[DS5 Bridge Config — OLED Edition](https://marcelinevpq.github.io/DS5Dongle-OLED-Config-Web/)** in Chrome, Edge, Vivaldi, Brave, or Opera (Firefox isn't supported — Mozilla declined WebHID). Click **Connect**, pick the DualSense from the browser dialog, and edit any field with a familiar form UI. The page talks directly to the Pico over WebHID — no driver, no install, no data leaves your machine. Source at [MarcelineVPQ/DS5Dongle-OLED-Config-Web](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Config-Web).
 
 ### Connections (some require soldering)
+After you configure the dongle with the webtool, make the following connections:
 
 | Connection | Notes | Connection Type |
 |---|---|---|
