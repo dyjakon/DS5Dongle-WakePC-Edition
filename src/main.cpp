@@ -23,6 +23,7 @@
 #endif
 #include "oled.h"
 #include "remap.h"
+#include "power_ctrl.h"
 
 // Pico SDK speciifically for waiting on conditions
 #include "pico/critical_section.h"
@@ -435,6 +436,7 @@ int main() {
     audio_init();
     state_init();
     oled_init();
+    power_ctrl_init();
 
 #if !ENABLE_SERIAL
     watchdog_enable(1000, true);
@@ -450,6 +452,7 @@ int main() {
         audio_loop();
         interrupt_loop();
         oled_loop();
+        power_ctrl_task();
 #if ENABLE_BATT_LED
         battery_led_tick();
 #endif

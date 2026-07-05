@@ -35,6 +35,7 @@ void set_feature_data(uint8_t reportId, uint8_t* data,uint16_t len);
 void bt_connection_watchdog_tick();
 
 // OLED add-on accessors.
+bool bt_disconnect();
 bool bt_is_connected();
 void bt_get_addr(uint8_t out[6]);
 uint32_t bt_hci_err_count();
