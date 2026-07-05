@@ -42,11 +42,11 @@ This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge f
 | Item | Notes | Qty | Approx. price |
 |---|---|---|---|
 | **Raspberry Pi Pico 2 W** | RP2350 MCU with on-board CYW43 Bluetooth/WiFi. [Official product page](https://www.raspberrypi.com/products/raspberry-pi-pico-2/) | 1 | ~$7 USD |
-| **Sony DualSense Controller** | Any standard PS5 DualSense (VID `054C:0CE6`). | 1 | — |
-| **USB-Micro cable** | Connects the Pico 2 W to the host PC. | 1 | — |
-| **ATX24 Pin 90 degree adapter** | Connects the Pico 2 W to the ATX Power Supply and the PC F-Panel header | 1 | - |
-| **2N2222 NPN bipolar junction transistor (BJT)** | Used to isolate the 5V from PS_ON so it never reaches the Pico | 1 | - |
-| **1k ohm resistor** | Used in conjunction with 2N2222 and also as a precaution if GP20 GPIO ever gets accidentally set as an output or PSU startup/shutdown transients | 2 | - |
+| **Sony DualSense Controller** | Any standard PS5 DualSense (VID `054C:0CE6`). | 1 | ~$74 |
+| **MicroUSB to USB-A cable** | Connects the Pico 2 W to the host PC. | 1 | — |
+| **ATX24 90 degree adapter** | Connects the Pico 2 W to the ATX Power Supply and the PC F-Panel header | 1 | ~$9 |
+| **2N2222 NPN bipolar junction transistor (BJT)** | Used to isolate the 5V from PS_ON so it never reaches the Pico | 1 | ~$0.02 |
+| **1k ohm resistor** | Used in conjunction with 2N2222 and also as a precaution if GP20 GPIO ever gets accidentally set as an output or PSU startup/shutdown transients | 2 | $0.20 |
 
 ### Optional (strongly recommended)
 
@@ -68,62 +68,27 @@ This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge f
 
 1. Put the DualSense controller into Bluetooth pairing mode
 2. Wait for the Pico2W to detect and connect
-3. Once connected, the device will appear on the host system
+3. Once connected, the device will appear on the host system, then use the WebConfig tool to adjust parameters
 
 ## Configuration
 
-There are four ways to configure the firmware:
+Use the Web config tool to further configure the DS controller:
 
 **Web config (recommended, any Chromium-based browser):** open **[DS5 Bridge Config — OLED Edition](https://marcelinevpq.github.io/DS5Dongle-OLED-Config-Web/)** in Chrome, Edge, Vivaldi, Brave, or Opera (Firefox isn't supported — Mozilla declined WebHID). Click **Connect**, pick the DualSense from the browser dialog, and edit any field with a familiar form UI. The page talks directly to the Pico over WebHID — no driver, no install, no data leaves your machine. Source at [MarcelineVPQ/DS5Dongle-OLED-Config-Web](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Config-Web).
 
-**On-device (OLED add-on present):** use the on-screen **Settings** menu (10th screen). D-pad ▲▼ moves selection, ▶◀ adjusts values, △ saves to flash.
+### Connections (some require soldering)
 
-**Terminal CLI (any OS, any browser):** install hidapi, then use `scripts/set_ds5.py`:
-
-```bash
-pip install hidapi
-scripts/set_ds5.py                            # show current config
-scripts/set_ds5.py --auto-haptics fallback    # change a field, persist to flash
-scripts/set_ds5.py --speaker-volume -10 --haptics-gain 1.5
-scripts/set_ds5.py --slot 2                   # switch active multi-slot pairing
-scripts/set_ds5.py --version                  # firmware version
-scripts/set_ds5.py --rssi                     # live BT RSSI in dBm
-scripts/set_ds5.py --help                     # full flag list
-```
-
-The script talks to the firmware over USB HID feature reports `0xF6`/`0xF7`/`0xF8`/`0xF9` — works on Linux, macOS, and Windows in any terminal regardless of which browser you use. Ported from [loteran/DS5Dongle](https://github.com/loteran/DS5Dongle) and extended for this fork's `current_slot` field.
-
-**DualSense controller buttons (legacy fallback, no OLED, no CLI):**
-
-### Microphone volume
-
-Controls haptic gain multiplier. Range: `[1.0 – 2.0]`.
-
-### Speaker mute
-
-Disables LED connection indicator. Takes effect after controller reconnects.
-
-### Microphone mute
-
-Disables silent disconnection behavior.
-
-## Notes
-
-The Pico device will only be visible to the system after the controller is connected
-
-Some behaviors depend on reconnection cycles to take effect
-
-### Low-battery LED indicator
-
-When the connected DualSense reports its battery at or below 10% (and it is not charging), the Pico onboard LED switches from solid-on to a 1 Hz blink so you can see the warning at a glance. The LED returns to solid-on as soon as the controller is plugged in or its reported level rises again. The blink also fires when `disable_pico_led` is set — the warning is treated as critical and overrides the LED-off preference; the LED returns to its disabled (off) state once the battery recovers or the controller starts charging.
-
-To opt out at build time, configure with `-DENABLE_BATT_LED=OFF`. Default is ON.
-
-## DualSense Microphone over Bluetooth
-
-**The DualSense's built-in microphone works over the dongle's Bluetooth pairing** (since v0.6.8). The controller streams its mic as Opus audio; the dongle decodes it and presents it to the host as the standard DualSense USB capture device, so any app (Discord, OBS, in-game voice) can use it like a normal microphone.
-
-This was long believed impossible — earlier versions of this fork documented it as a hard Sony-firmware limitation (and the Linux `hid-playstation` kernel driver still doesn't support it). It turned out to hinge on a single enable bit in the dongle's outbound audio report. **Full credit to [awalol](https://github.com/awalol/DS5Dongle) (upstream) for identifying it.** The corrected investigation log lives in [BLUETOOTH_AUDIO_NOTES.md](./BLUETOOTH_AUDIO_NOTES.md).
+| Connection | Notes | Connection Type |
+|---|---|---|
+| GP21 -> Case power button + | For manually triggering a turn on without a controller (use any other free GND on Pico2W for negative/neutral pin) | 1.25mm connector |
+| VSYS -> ATX24 5VSB+ | connection from ATX24 5VSB+ to provided constant power to Pico2W, this allows the Pico to listen for DS controller BT signal | solder |
+| COM -> GND connection from ATX24 | Common ground between Pico2W, PC Motherboard and ATX24 PSU | solder |
+| GP20 -> 1k ohm resistor -> ATX24 3.3v | sensing from ATX24 if the PC is awake | solder |
+| GP18 -> F_PANEL Power On+ | For connection to F_PANEL Power On+ from Motherboard (user any other free GND for negative/neutral pin) | 1.25mm connector |
+| GP16 -> 1k ohm resistor -> 2n2222 Base | - | solder |
+| 2N2222 Emitter -> GND from Pico2W or ATX24 | - | solder |
+| 2N2222 Collector -> PS-ON from ATX24 | For connection to ATX24 PS-ON, when using an eGPU and need to trigger the GPU to turn on before the PC | solder |
+| MicroUSB -> USB-A | connection from the Pico2W to a USB 2.0 port on the PC motherboard | - |
 
 **Using it:**
 
@@ -197,34 +162,6 @@ Build flags worth knowing:
 - `-DENABLE_BATT_LED=ON` (default) — blink Pico LED on low DS5 battery.
 - `-DENABLE_SERIAL=ON` — route printf to USB CDC for debugging (default OFF; releases UART for production builds).
 - `-DPICO_W_BUILD=ON` — build for the original Pico W (drops audio, lowers clock). Default targets Pico 2 W.
-
-## Diagnostics & debug tooling
-
-Two ways to triage bridge issues — on-device via the OLED Diagnostics screen, and host-side via `scripts/mic_diag.sh` (Linux). The host-side path is faster: no screen-switching, no flash cycle, runs while the controller is in active use.
-
-```
-# One-shot snapshot — is the dongle on USB? Did ALSA enumerate it? Is the
-# capture stream live? Is a controller currently paired?
-scripts/mic_diag.sh status
-
-# 3-second arecord on the mic IN endpoint — reports peak / RMS / non-zero
-# count so we can tell "stream is silent" from "stream is producing audio".
-scripts/mic_diag.sh capture 3
-
-# Same as `status` but in a loop, prints only on state change. Useful for
-# catching the exact second pairing completes or audio streams open / close.
-scripts/mic_diag.sh watch
-
-# Live read of the firmware's 0xFD vendor feature report (via /dev/hidraw):
-# BT input counts + rates, last seen non-0x31 IDs, byte prefixes, AND the
-# trigger-flow counters (host 0x02 received / with AllowTriggerFFB set /
-# forwarded to BT). bt-trace prints a verdict — "host driver isn't sending
-# trigger Allow bits" vs "forwarded but controller didn't actuate" — which
-# is what would otherwise need a USB protocol analyzer.
-scripts/mic_diag.sh bt-trace
-```
-
-Originally written to triage the parked DS5 BT-microphone investigation (see [BLUETOOTH_AUDIO_NOTES.md](./BLUETOOTH_AUDIO_NOTES.md)). The `0xFD` feature report and `bt-trace` decoder now also carry the trigger-flow counters added for [issue #3](https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition/issues/3) (missing adaptive trigger tension in some games).
 
 ## OLED Display Add-on (optional)
 
