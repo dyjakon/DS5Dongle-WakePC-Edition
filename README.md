@@ -1,8 +1,8 @@
 # Pico2W DualSense 5 Bridge — WakePC Edition
 
-> Turn a Raspberry Pi Pico2W into a wireless adapter for the DualSense (DS5) controller — with the capability to wake a PC from power off state and wake from sleep. Also an optional on-board status display.
+> Turn a Raspberry Pi Pico2W into a wireless adapter for the DualSense (DS5) controller — with the capability to wake a PC from power off state and wake from sleep. 
 
-> **WAKE PC Edition** is a fork of **[MarcelineVPQ/DS5Dongle-OLED-Edition]([https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition])** that adds an optional ability to wake 
+> **WAKE PC Edition** is a fork of **[MarcelineVPQ/DS5Dongle-OLED-Edition]([https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition])** that adds an optional ability to wake a PC from Power Off or Sleep state.
 
 ---
 
@@ -12,8 +12,13 @@ This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge f
 
 ## Features
 
-**Core bridge (from upstream):**
 
+**New in WakePC Edition:**
+- Wake from Power Off functionality
+- Wake from Sleep functionality
+- PS_ON trigger with 1000ms delay before Wake from Power Off, for e-GPU setups
+
+**Core bridge (from upstream):**
 - Full DualSense connectivity via Pico2W
 - HD haptics (advanced vibration feedback)
 - Wireless Bluetooth bridging
@@ -29,21 +34,19 @@ This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge f
 - **Soft-reboot** without unplugging USB via DS5 `PS + Mute` hold (works headless) or **KEY0 + KEY1 held together for 1 s** on the OLED add-on (replaces the older KEY0 double-click gesture, which was easy to fire by accident while paging quickly)
 - **Audit pass on the core bridge** — critical stack-overflow fix in the audio path (resolves long-standing "audio stuttering"), security hardening, watchdog, length validation across HID/L2CAP boundaries (see [CHANGELOG.md](./CHANGELOG.md))
 
-**New in WakePC Edition:**
-- Wake from Power Off functionality
-- Wake from Sleep functionality
-- PS_ON trigger with 1000ms delay before Wake from Power Off, for e-GPU setups
 
 ## Hardware
 
 ### Required
 
-| Item | Notes | Approx. price |
-|---|---|---|
-| **Raspberry Pi Pico 2 W** | RP2350 MCU with on-board CYW43 Bluetooth/WiFi. [Official product page](https://www.raspberrypi.com/products/raspberry-pi-pico-2/) | ~$7 USD |
-| **Sony DualSense Controller** | Any standard PS5 DualSense (VID `054C:0CE6`). | — |
-| **USB-Micro cable** | Connects the Pico 2 W to the host PC. | — |
-| **ATX24 Pin 90 degree adapter** | Connects the Pico 2 W to the ATX Power Supply and the PC F-Panel header | - |
+| Item | Notes | Qty | Approx. price |
+|---|---|---|---|
+| **Raspberry Pi Pico 2 W** | RP2350 MCU with on-board CYW43 Bluetooth/WiFi. [Official product page](https://www.raspberrypi.com/products/raspberry-pi-pico-2/) | 1 | ~$7 USD |
+| **Sony DualSense Controller** | Any standard PS5 DualSense (VID `054C:0CE6`). | 1 | — |
+| **USB-Micro cable** | Connects the Pico 2 W to the host PC. | 1 | — |
+| **ATX24 Pin 90 degree adapter** | Connects the Pico 2 W to the ATX Power Supply and the PC F-Panel header | 1 | - |
+| **2N2222 NPN bipolar junction transistor (BJT)** | Used to isolate the 5V from PS_ON so it never reaches the Pico | 1 | - |
+| **1k ohm resistor** | Used in conjunction with 2N2222 and also as a precaution if GP20 GPIO ever gets accidentally set as an output or PSU startup/shutdown transients | 2 | - |
 
 ### Optional (strongly recommended)
 
